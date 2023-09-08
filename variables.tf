@@ -3,6 +3,21 @@ variable "region" {
   default = "us-west-2"
 }
 
+variable "name" {
+  type    = string
+  default = "sandbox"
+}
+
+variable "k8s_version" {
+  type    = string
+  default = "1.23"
+}
+
+variable "instance_type" {
+  type    = string
+  default = "t2.micro"
+}
+
 variable "public_subnet_cidrs" {
   type        = list(string)
   description = "Public Subnet CIDR values"
