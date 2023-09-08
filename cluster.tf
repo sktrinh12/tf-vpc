@@ -30,7 +30,7 @@ resource "aws_eks_cluster" "eks" {
 
   vpc_config {
     endpoint_private_access = true
-    endpoint_public_access  = false
+    endpoint_public_access  = true
     subnet_ids = [
       aws_subnet.private_subnets[0].id,
       aws_subnet.private_subnets[1].id,
@@ -110,7 +110,19 @@ resource "aws_eks_node_group" "nodes_eks" {
     aws_iam_role_policy_attachment.amazon_eks_cni_policy_eks,
     aws_iam_role_policy_attachment.amazon_ec2_container_registry_read_only,
   ]
-  tags = {
-    Name = "${var.name}-k8s-node-group"
+}
+
+resource "aws_autoscaling_group_tag" "asg_tag" {
+  autoscaling_group_name = aws_eks_node_group.nodes_eks.resources[0].autoscaling_groups[0].name
+
+  tag {
+    key   = "Name"
+    value = "${var.name}-k8s-node-group"
+
+    propagate_at_launch = true
   }
+
+  depends_on = [
+    aws_eks_node_group.nodes_eks
+  ]
 }
