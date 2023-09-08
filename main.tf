@@ -1,16 +1,12 @@
-provider "aws" {
-  region                   = var.region
-  shared_credentials_files = ["$HOME/.aws/credentials"]
-  profile                  = "spsandbox"
-}
-
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
   tags = {
-    Name        = "Sandbox"
-    Owner       = "Informatics"
-    Environment = "Dev"
+    Name                                                 = "${var.name}-vpc"
+    Owner                                                = "Informatics"
+    Environment                                          = "Dev"
+    "kubernetes.io/cluster/${var.name}-knte-k8s-cluster" = "shared"
   }
 }
 
@@ -20,7 +16,7 @@ resource "aws_subnet" "public_subnets" {
   cidr_block        = element(var.public_subnet_cidrs, count.index)
   availability_zone = element(var.azs, count.index)
   tags = {
-    Name = "sandbox-public-subnet"
+    Name        = "${var.name}-public-subnet-${count.index + 1}"
     Environment = "sandbox"
   }
 }
@@ -31,8 +27,10 @@ resource "aws_subnet" "private_subnets" {
   cidr_block        = element(var.private_subnet_cidrs, count.index)
   availability_zone = element(var.azs, count.index)
   tags = {
-    Name = "sandbox-private-subnet"
-    Environment = "sandbox"
+    Name                                                 = "${var.name}-private-subnet-${count.index + 1}"
+    Environment                                          = "sandbox"
+    "kubernetes.io/cluster/${var.name}-knte-k8s-cluster" = "shared"
+    "kubernetes.io/role/internal-elb"                    = "1"
   }
 }
 
@@ -42,28 +40,12 @@ resource "aws_security_group" "sandbox-sg" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-      description = "Custom TCP port range, include kubelet communication"
-      from_port   = 1025
-      to_port     = 65535
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
     description = "SSH from specific IP range"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["10.75.0.0/16"]
   }
-
-  ingress {
-      description = "HTTPS from EKS control plane"
-      from_port   = 443
-      to_port     = 443
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
 
   egress {
     from_port   = 0
@@ -73,21 +55,64 @@ resource "aws_security_group" "sandbox-sg" {
   }
 }
 
-resource "aws_internet_gateway" "gw" {
+resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
+  tags = {
+    Name = "${var.name}-internet-gateway"
+  }
 }
 
-resource "aws_route_table" "second_rt" {
+resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.gw.id
+    gateway_id = aws_internet_gateway.igw.id
+  }
+  tags = {
+    Name = "${var.name}-public-rt"
   }
 }
 
 resource "aws_route_table_association" "public_subnet_asso" {
   count          = length(var.public_subnet_cidrs)
   subnet_id      = element(aws_subnet.public_subnets[*].id, count.index)
-  route_table_id = aws_route_table.second_rt.id
+  route_table_id = aws_route_table.public_rt.id
+}
+
+resource "aws_eip" "nat_eip" {
+  count      = length(var.private_subnet_cidrs)
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.igw]
+  tags = {
+    Name = "${var.name}-nat-eip-${count.index + 1}"
+  }
+}
+
+resource "aws_nat_gateway" "nat_gateway" {
+  allocation_id = aws_eip.nat_eip[0].id
+  subnet_id     = aws_subnet.public_subnets[0].id
+  depends_on    = [aws_internet_gateway.igw]
+  tags = {
+    Name = "${var.name}-NAT-gateway"
+  }
+}
+
+resource "aws_route_table" "private_rt" {
+  vpc_id = aws_vpc.main.id
+  tags = {
+    Name = "${var.name}-private-rt"
+  }
+}
+
+resource "aws_route" "private_nat_route" {
+  route_table_id         = aws_route_table.private_rt.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat_gateway.id
+}
+
+resource "aws_route_table_association" "private_subnet_asso" {
+  count          = length(var.private_subnet_cidrs)
+  subnet_id      = element(aws_subnet.private_subnets[*].id, count.index)
+  route_table_id = aws_route_table.private_rt.id
 }
