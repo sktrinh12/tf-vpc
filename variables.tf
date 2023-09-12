@@ -3,6 +3,26 @@ variable "region" {
   default = "us-west-2"
 }
 
+variable "desired_size" {
+  type    = number
+  default = 2
+}
+
+variable "min_size" {
+  type    = number
+  default = 1
+}
+
+variable "max_size" {
+  type    = number
+  default = 4
+}
+
+variable "aws_profile" {
+  type    = string
+  default = "spsandbox"
+}
+
 variable "name" {
   type    = string
   default = "sandbox"
